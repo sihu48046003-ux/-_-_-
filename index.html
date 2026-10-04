@@ -1093,7 +1093,7 @@ async function addDevice(){
   let selected = null;
   try {
     selected = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: DRT.CONST.NAME_PREFIX }],
+      acceptAllDevices: true,
       optionalManufacturerData: [DRT.CONST.APPLE_COMPANY_ID]
     });
     if (epoch !== scanEpoch) return;
