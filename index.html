@@ -1,0 +1,1669 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0b0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" href="favicon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>더링투어 · 대피자 탐색</title>
+<style>
+:root{
+  --bg:#0b0f14; --surf:#131a22; --surf2:#1a242f; --line:#243444;
+  --tx:#e8eef5; --dim:#8fa3b8; --dim2:#5d7186;
+  /* 상태색은 dataviz 상태 팔레트 고정값. 근접도 램프(앰버)와 겹치지 않습니다 */
+  --acc:#ff8a3d; --danger:#d03b3b; --ok:#0ca30c; --warn:#fab219; --serious:#ec835a; --info:#5aa9ff;
+  --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",
+  "Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+body{display:flex;flex-direction:column;padding-top:var(--safe-t);padding-bottom:var(--safe-b)}
+
+/* ---------- 상단바 ---------- */
+#top{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surf);
+  border-bottom:1px solid var(--line);flex:0 0 auto}
+#top .brand{font-weight:800;font-size:15px;letter-spacing:-.3px;white-space:nowrap}
+#top .brand span{color:var(--acc)}
+#unitTag{font-size:12px;color:var(--dim);background:var(--surf2);border:1px solid var(--line);
+  border-radius:999px;padding:3px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38vw}
+.spacer{flex:1}
+.pill{font-size:11px;font-weight:700;border-radius:999px;padding:4px 9px;border:1px solid var(--line);
+  background:var(--surf2);color:var(--dim);white-space:nowrap}
+.pill.on{color:#06131a;background:var(--ok);border-color:var(--ok)}
+.pill.warn{color:#1a1200;background:var(--warn);border-color:var(--warn)}
+.pill.err{color:#fff;background:var(--danger);border-color:var(--danger)}
+.iconbtn{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);
+  background:var(--surf2);color:var(--tx);font-size:17px;display:grid;place-items:center;
+  flex:0 0 auto;cursor:pointer}
+
+/* ---------- 경보 배너 ---------- */
+#banner{display:none;padding:10px 12px;font-weight:800;font-size:14px;text-align:center;
+  background:var(--danger);color:#fff;flex:0 0 auto}
+#banner.show{display:block;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+
+/* ---------- 레이더 ---------- */
+#radarWrap{position:relative;flex:0 0 auto;display:grid;place-items:center;
+  padding:10px 0 4px;background:linear-gradient(180deg,var(--surf) 0%,var(--bg) 100%)}
+#radar{width:min(88vw,340px);height:min(88vw,340px);touch-action:none}
+#radarInfo{position:absolute;left:12px;top:14px;font-size:11px;color:var(--dim2);line-height:1.5}
+#calBtn{position:absolute;right:12px;top:14px}
+
+/* ---------- 목록 ---------- */
+#list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:6px 10px 12px}
+.card{background:var(--surf);border:1px solid var(--line);border-left:5px solid var(--dim2);
+  border-radius:12px;padding:10px 12px;margin-bottom:8px;display:grid;
+  grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
+.card.sos{border-left-color:var(--danger);background:#2a1418;animation:pulse 1.4s infinite}
+.card.stale{opacity:.45}
+.card.done{opacity:.35;border-left-color:var(--ok)}
+.arrow{width:46px;height:46px;flex:0 0 auto}
+.bid{font-size:17px;font-weight:800;letter-spacing:.5px}
+.bmeta{font-size:11px;color:var(--dim);margin-top:2px;line-height:1.45}
+.bdist{font-size:26px;font-weight:800;line-height:1;text-align:right}
+.bgrade{font-size:11px;font-weight:800;margin-top:3px;text-align:right}
+.bars{display:flex;gap:2px;margin-top:5px;justify-content:flex-end}
+.bars i{width:4px;border-radius:1px;background:var(--line);display:block}
+.tagrow{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
+.tag{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;
+  background:var(--surf2);border:1px solid var(--line);color:var(--dim)}
+.tag.red{background:#3a1519;border-color:#5c2028;color:#ff9a9a}
+.tag.grn{background:#0e2d26;border-color:#1a4d41;color:#7ce8cc}
+.rescue{grid-column:1/-1;margin-top:6px;padding:9px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surf2);color:var(--tx);font-weight:700;font-size:13px;cursor:pointer}
+.rescue.done{background:#0e2d26;border-color:#1a4d41;color:#7ce8cc}
+#empty{text-align:center;color:var(--dim2);padding:36px 20px;font-size:13px;line-height:1.7}
+
+/* ---------- 하단 조작 ---------- */
+#bottom{flex:0 0 auto;display:flex;gap:8px;padding:8px 10px calc(8px + var(--safe-b));
+  background:var(--surf);border-top:1px solid var(--line)}
+.btn{flex:1;padding:14px 8px;border-radius:12px;border:1px solid var(--line);
+  background:var(--surf2);color:var(--tx);font-weight:800;font-size:14px;cursor:pointer}
+.btn.primary{background:var(--acc);border-color:var(--acc);color:#1a0d00}
+.btn.stop{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn:disabled{opacity:.4}
+.btn.small{flex:0 0 auto;padding:14px 14px;font-size:16px}
+
+/* ---------- 설정 시트 ---------- */
+#sheet{position:fixed;inset:0;background:rgba(4,8,12,.75);display:none;z-index:50;
+  align-items:flex-end;backdrop-filter:blur(3px)}
+#sheet.show{display:flex}
+#sheetInner{background:var(--surf);width:100%;max-height:90vh;overflow-y:auto;
+  border-radius:18px 18px 0 0;border-top:1px solid var(--line);
+  padding:16px 16px calc(24px + var(--safe-b))}
+#sheetInner h2{margin:0 0 4px;font-size:17px}
+.hint{font-size:11px;color:var(--dim2);line-height:1.6;margin:2px 0 12px}
+fieldset{border:1px solid var(--line);border-radius:12px;padding:12px;margin:0 0 12px}
+legend{font-size:12px;font-weight:800;color:var(--acc);padding:0 6px}
+label{display:block;font-size:12px;color:var(--dim);margin:9px 0 4px;font-weight:600}
+input,select{width:100%;padding:11px;border-radius:9px;border:1px solid var(--line);
+  background:var(--bg);color:var(--tx);font-size:15px;font-family:inherit;-webkit-user-select:text;user-select:text}
+input[type=range]{padding:0}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.val{float:right;color:var(--acc);font-weight:800}
+#diag{font-size:11px;color:var(--dim);background:var(--bg);border:1px solid var(--line);
+  border-radius:9px;padding:10px;line-height:1.7;white-space:pre-wrap;
+  -webkit-user-select:text;user-select:text;word-break:break-all}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <div class="brand">더링<span>투어</span></div>
+  <div id="unitTag">—</div>
+  <div class="spacer"></div>
+  <div class="pill" id="pillScan">대기</div>
+  <div class="pill" id="pillLink">전송꺼짐</div>
+  <button class="iconbtn" id="btnSet" aria-label="설정">⚙</button>
+</div>
+
+<div id="banner"></div>
+
+<div id="radarWrap">
+  <canvas id="radar" width="680" height="680"></canvas>
+  <div id="radarInfo">방위 —<br>기울여 든 채 천천히 한 바퀴</div>
+  <button class="iconbtn" id="calBtn" aria-label="나침반">🧭</button>
+</div>
+
+<div id="list"><div id="empty">스캔을 시작하면 주변 대피 비콘이<br>여기에 표시됩니다.</div></div>
+
+<div id="bottom">
+  <button class="btn primary" id="btnScan">스캔 시작</button>
+  <button class="btn small" id="btnAdd" title="비콘 개별 등록">＋</button>
+  <button class="btn small" id="btnSos" title="본인 긴급">🆘</button>
+</div>
+
+<!-- ================= 설정 시트 ================= -->
+<div id="sheet"><div id="sheetInner">
+  <h2>설정</h2>
+  <p class="hint">변경 즉시 저장됩니다. 스캔 중 바꿔도 됩니다.</p>
+
+  <fieldset><legend>대원 정보</legend>
+    <label>현장 코드 (site) — 통제실과 반드시 동일해야 합니다</label>
+    <input id="cfgSite" placeholder="예: busan-hq-2026">
+    <div class="row2">
+      <div><label>대원 ID</label><input id="cfgUnit" placeholder="FF1"></div>
+      <div><label>호출명</label><input id="cfgName" placeholder="1팀 김소방"></div>
+    </div>
+    <div class="row2">
+      <div><label>층</label><input id="cfgFloor" type="number" placeholder="3"></div>
+      <div><label>구역</label><input id="cfgZone" placeholder="B"></div>
+    </div>
+  </fieldset>
+
+  <fieldset><legend>거리 보정 <span class="hint" style="display:inline">현장마다 실측 권장</span></legend>
+    <label>1m 기준 RSSI (TxPower) <span class="val" id="vTx"></span></label>
+    <input id="cfgTx" type="range" min="-80" max="-40" step="1">
+    <label>경로손실 지수 n <span class="val" id="vN"></span></label>
+    <input id="cfgN" type="range" min="18" max="45" step="1">
+    <p class="hint">n = 2.0 개방공간 · 2.8 일반 실내 · 3.5 칸막이 많은 사무실 · 4.0+ 층간<br>
+      보정법: 비콘을 정확히 1m 앞에 두고 표시 거리가 1.0m가 되도록 TxPower를 맞춘 뒤,
+      5m로 물러나 5m가 나오도록 n을 맞춥니다.</p>
+    <label>RSSI 평활 강도 <span class="val" id="vK"></span></label>
+    <input id="cfgK" type="range" min="1" max="20" step="1">
+  </fieldset>
+
+  <fieldset><legend>통제실 전송</legend>
+    <label>전송 모드</label>
+    <select id="cfgMode">
+      <option value="auto">자동 (로컬 우선 → 인터넷)</option>
+      <option value="local">현장 로컬 서버만 (인터넷 불필요)</option>
+      <option value="mqtt">인터넷 MQTT만 (훈련·평시)</option>
+      <option value="off">전송 끔 (단독 운용)</option>
+    </select>
+    <label>로컬 서버 주소</label>
+    <input id="cfgLocal" placeholder="wss://192.168.4.1:8443/ws">
+    <label>MQTT 브로커</label>
+    <input id="cfgBroker" placeholder="wss://broker.emqx.io:8084/mqtt">
+    <label>보고 주기 <span class="val" id="vRep"></span></label>
+    <input id="cfgRep" type="range" min="1" max="10" step="1">
+  </fieldset>
+
+  <fieldset><legend>동작</legend>
+    <label><input type="checkbox" id="cfgIbea" style="width:auto"> iBeacon 상세 수집 (구역·배터리·SOS 비트)</label>
+    <p class="hint">끄면 이름만으로 식별합니다. 일부 기기에서 이 옵션을 켜야 Major/Minor가 보입니다.</p>
+    <label><input type="checkbox" id="cfgSound" style="width:auto"> 신규 발견 시 소리·진동</label>
+    <label><input type="checkbox" id="cfgWake" style="width:auto"> 화면 켜짐 유지</label>
+    <label><input type="checkbox" id="cfgSim" style="width:auto"> 시뮬레이션 모드 (발표·훈련용)</label>
+    <p class="hint">블루투스 없이 가상 비콘 5개를 생성합니다. 심사·시연에서 실제 하드웨어 없이 전체 흐름을 보여줄 수 있습니다.</p>
+  </fieldset>
+
+  <fieldset><legend>진단</legend>
+    <div id="diag">—</div>
+  </fieldset>
+
+  <button class="btn primary" id="btnClose" style="width:100%">닫기</button>
+</div></div>
+
+<script>
+/* ======================================================================
+ *  DRT-CORE  —  더링투어 대피비콘 공용 라이브러리 v1.0
+ *  Deuring Tour · 호박공장메이커스페이스
+ * ----------------------------------------------------------------------
+ *  소방관 앱(index.html)과 통제실(control.html)이 함께 사용합니다.
+ *  외부 의존성 0개. 인터넷이 끊긴 현장에서도 전부 동작합니다.
+ *
+ *  구성
+ *    DRT.CONST      프로토콜 상수
+ *    DRT.Kalman     1차원 칼만 필터 (RSSI 평활화)
+ *    DRT.rssiToDist RSSI → 거리 환산
+ *    DRT.grade      거리 등급 판정
+ *    DRT.Bearing    방향 추정기 (최소자승 정현파 피팅)
+ *    DRT.parseAdv   광고 패킷 파서 (이름 + iBeacon)
+ *    DRT.trilaterate 4인 관측 → 비콘 위치 삼변측량
+ *    DRT.MqttWs     의존성 없는 MQTT 3.1.1 over WebSocket 클라이언트
+ *    DRT.Link       전송 계층 (MQTT / 로컬 WebSocket 자동 선택)
+ * ====================================================================== */
+(function (global) {
+'use strict';
+
+const DRT = {};
+
+/* ====================================================================
+ *  1. 상수
+ * ==================================================================== */
+DRT.CONST = {
+  VERSION: 1,
+  NAME_PREFIX: 'DRT',              // DRT-xxxx (평시) / DRTS-xxxx (SOS)
+  IBEACON_UUID: 'd0e9f1a0-7b21-4c55-9e31-000000de0001',
+  APPLE_COMPANY_ID: 0x004c,        // iBeacon 제조사 ID
+
+  /* 거리 등급 — 근접도는 "크기(magnitude)" 이므로 무지개색이 아니라
+   * 단일 색상의 밝기 단계(ordinal ramp)로 표현합니다.
+   * 가까울수록 밝아져 시선을 끕니다. 거리 숫자를 항상 함께 표기하므로
+   * 색만으로 정보를 전달하지 않습니다(색각이상·연기 속 가독성 대비).
+   * 검증: 단조 밝기 / 인접 ΔL≥0.06 / 어두운끝 3.35:1 — 전 항목 통과 */
+  GRADES: [
+    { key: 'CONTACT', label: '접촉',   max: 1.5,      color: '#ffe0b0' },
+    { key: 'CLOSE',   label: '근접',   max: 4,        color: '#ffc477' },
+    { key: 'MID',     label: '근거리', max: 10,       color: '#f2a338' },
+    { key: 'FAR',     label: '중거리', max: 25,       color: '#c9800f' },
+    { key: 'FAINT',   label: '원거리', max: Infinity, color: '#96610f' }
+  ],
+
+  /* 상태색 — 근접도 램프와 절대 겹치지 않게 예약된 색.
+   * 항상 아이콘 + 글자와 함께 쓰고, 색 단독으로 의미를 주지 않습니다. */
+  STATUS: {
+    rescued: { color: '#0ca30c', icon: '✓',  label: '구조완료' },
+    sos:     { color: '#d03b3b', icon: '🆘', label: '긴급'     },
+    lost:    { color: '#8fa3b8', icon: '⚠',  label: '신호유실' },
+    lowbatt: { color: '#ec835a', icon: '🔋', label: '배터리부족' }
+  },
+
+  RSSI_FLOOR: -100,                // 이보다 약하면 신뢰 불가
+  STALE_MS:   12000,               // 이 시간 미수신이면 '유실'
+  DROP_MS:    45000                // 이 시간 미수신이면 목록에서 제거
+};
+
+/* ====================================================================
+ *  2. 칼만 필터 — RSSI는 초당 수 dB씩 튑니다. 평활화가 필수입니다.
+ * ==================================================================== */
+DRT.Kalman = function (opts) {
+  opts = opts || {};
+  this.R = opts.R != null ? opts.R : 8;    // 측정 잡음 (RSSI 분산, dB^2)
+  this.Q = opts.Q != null ? opts.Q : 0.6;  // 프로세스 잡음 (이동 허용치)
+  this.x = null;                           // 추정값
+  this.P = 100;                            // 추정 오차 공분산
+};
+DRT.Kalman.prototype.push = function (z) {
+  if (this.x === null) { this.x = z; this.P = this.R; return this.x; }
+  this.P += this.Q;
+  const K = this.P / (this.P + this.R);
+  this.x += K * (z - this.x);
+  this.P *= (1 - K);
+  return this.x;
+};
+DRT.Kalman.prototype.value = function () { return this.x; };
+
+/* ====================================================================
+ *  3. RSSI → 거리
+ *     로그 거리 경로손실 모델:  d = 10 ^ ((TxPower - RSSI) / (10 n))
+ *       TxPower : 1m 지점에서 실측한 RSSI (음수, 예 -59)
+ *       n       : 경로손실 지수 (자유공간 2.0 / 실내 2.7~3.5 / 다층 4+)
+ * ==================================================================== */
+DRT.rssiToDist = function (rssi, txPower, n) {
+  txPower = txPower != null ? txPower : -59;
+  n       = n       != null ? n       : 2.8;
+  if (rssi == null || !isFinite(rssi)) return null;
+  const d = Math.pow(10, (txPower - rssi) / (10 * n));
+  return Math.max(0.1, Math.min(500, d));
+};
+
+/* 역변환 — 시뮬레이션 및 검증용 */
+DRT.distToRssi = function (d, txPower, n) {
+  txPower = txPower != null ? txPower : -59;
+  n       = n       != null ? n       : 2.8;
+  return txPower - 10 * n * Math.log10(Math.max(0.1, d));
+};
+
+DRT.grade = function (dist, rssi) {
+  if (rssi != null && rssi < DRT.CONST.RSSI_FLOOR) return DRT.CONST.GRADES[4];
+  if (dist == null) return DRT.CONST.GRADES[4];
+  for (let i = 0; i < DRT.CONST.GRADES.length; i++) {
+    if (dist <= DRT.CONST.GRADES[i].max) return DRT.CONST.GRADES[i];
+  }
+  return DRT.CONST.GRADES[4];
+};
+
+/* 신호 세기 0~1 정규화 (막대 표시용) */
+DRT.rssiToBars = function (rssi) {
+  if (rssi == null) return 0;
+  const v = (rssi + 100) / 45;               // -100dBm→0, -55dBm→1
+  return Math.max(0, Math.min(1, v));
+};
+
+/* ====================================================================
+ *  4. 방향(방위) 추정기
+ * --------------------------------------------------------------------
+ *  ⚠ 물리적 사실: 안테나가 1개인 스마트폰은 전파의 도래각(AoA)을
+ *    직접 측정할 수 없습니다. "RSSI만으로 방향을 안다"는 제품 설명은
+ *    거짓입니다. 대신 아래의 검증된 간접 기법을 씁니다.
+ *
+ *  원리 — 인체 차폐 변조(body-shadowing modulation)
+ *    폰을 가슴 앞에 들고 제자리에서 한 바퀴 돌면, 비콘이 등 뒤에 올 때
+ *    사람 몸이 전파를 4~10dB 가립니다. 즉 RSSI가 방위각의 코사인 형태로
+ *    변조됩니다:   RSSI(θ) ≈ a + b·cos θ + c·sin θ
+ *    이 3개 계수를 최소자승으로 풀면 최대점 θ* = atan2(c, b) 가
+ *    비콘 방위가 됩니다.
+ *
+ *  신뢰도(conf)는 ① 결정계수 R² ② 변조 진폭 ③ 표본이 커버한 방위각 범위
+ *  세 가지를 곱해서 냅니다. 낮으면 UI에서 화살표를 숨겨야 합니다.
+ * ==================================================================== */
+DRT.Bearing = function (opts) {
+  opts = opts || {};
+  this.windowMs   = opts.windowMs   || 25000;  // 표본 유지 시간
+  this.minSamples = opts.minSamples || 14;
+  this.minSpread  = opts.minSpread  || 100;    // 최소 커버 방위각(도)
+  this.minAmp     = opts.minAmp     || 1.8;    // 최소 변조 진폭(dB)
+  this.samples    = [];                        // {t, h(rad), r}
+};
+
+DRT.Bearing.prototype.push = function (headingDeg, rssi, now) {
+  if (headingDeg == null || rssi == null) return;
+  now = now || Date.now();
+  this.samples.push({ t: now, h: headingDeg * Math.PI / 180, r: rssi });
+  const cut = now - this.windowMs;
+  while (this.samples.length && this.samples[0].t < cut) this.samples.shift();
+  if (this.samples.length > 400) this.samples.shift();
+};
+
+/* 3x3 선형연립방정식 (가우스 소거법, 부분 피벗) */
+function solve3(A, b) {
+  const M = [[A[0][0], A[0][1], A[0][2], b[0]],
+             [A[1][0], A[1][1], A[1][2], b[1]],
+             [A[2][0], A[2][1], A[2][2], b[2]]];
+  for (let i = 0; i < 3; i++) {
+    let p = i;
+    for (let k = i + 1; k < 3; k++) if (Math.abs(M[k][i]) > Math.abs(M[p][i])) p = k;
+    if (Math.abs(M[p][i]) < 1e-12) return null;          // 특이행렬
+    const t = M[i]; M[i] = M[p]; M[p] = t;
+    for (let k = i + 1; k < 3; k++) {
+      const f = M[k][i] / M[i][i];
+      for (let j = i; j < 4; j++) M[k][j] -= f * M[i][j];
+    }
+  }
+  const x = [0, 0, 0];
+  for (let i = 2; i >= 0; i--) {
+    let s = M[i][3];
+    for (let j = i + 1; j < 3; j++) s -= M[i][j] * x[j];
+    x[i] = s / M[i][i];
+  }
+  return x;
+}
+
+DRT.Bearing.prototype.estimate = function () {
+  const s = this.samples;
+  if (s.length < this.minSamples) return null;
+
+  /* 방위각 커버리지 검사 — 가만히 서 있으면 추정 불가 */
+  let sx = 0, sy = 0;
+  for (const p of s) { sx += Math.cos(p.h); sy += Math.sin(p.h); }
+  const meanLen = Math.hypot(sx, sy) / s.length;   // 1에 가까울수록 한 방향만 봄
+  const spread  = (1 - meanLen) * 360;
+  if (spread < this.minSpread * 0.5) return null;
+
+  /* 정규방정식 구성:  X = [1, cos h, sin h],  y = rssi */
+  const A = [[0,0,0],[0,0,0],[0,0,0]], B = [0,0,0];
+  let sumY = 0;
+  for (const p of s) {
+    const v = [1, Math.cos(p.h), Math.sin(p.h)];
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) A[i][j] += v[i] * v[j];
+      B[i] += v[i] * p.r;
+    }
+    sumY += p.r;
+  }
+  const coef = solve3(A, B);
+  if (!coef) return null;
+  const [a, b, c] = coef;
+
+  const amp = Math.hypot(b, c);
+  if (amp < this.minAmp) return null;              // 변조가 잡음 수준
+
+  /* 결정계수 R² */
+  const meanY = sumY / s.length;
+  let ssRes = 0, ssTot = 0;
+  for (const p of s) {
+    const fit = a + b * Math.cos(p.h) + c * Math.sin(p.h);
+    ssRes += (p.r - fit) * (p.r - fit);
+    ssTot += (p.r - meanY) * (p.r - meanY);
+  }
+  const r2 = ssTot > 1e-9 ? Math.max(0, 1 - ssRes / ssTot) : 0;
+
+  let bearing = Math.atan2(c, b) * 180 / Math.PI;
+  if (bearing < 0) bearing += 360;
+
+  const conf = Math.max(0, Math.min(1,
+      r2 * Math.min(1, amp / 6) * Math.min(1, spread / this.minSpread)));
+
+  return { bearing, conf, amp, r2, n: s.length, spread };
+};
+
+DRT.Bearing.prototype.reset = function () { this.samples = []; };
+
+/* ====================================================================
+ *  5. 광고 패킷 파서
+ * ==================================================================== */
+DRT.parseName = function (name) {
+  if (!name) return null;
+  const m = /^DRT(S?)-([0-9A-Fa-f]{1,4})$/.exec(name.trim());
+  if (!m) return null;
+  return { sos: m[1] === 'S', hex: m[2].toUpperCase() };
+};
+
+/* iBeacon manufacturer data (Apple 0x004C) 해석
+ * 레이아웃: [0]=0x02 [1]=0x15 [2..17]=UUID [18..19]=Major [20..21]=Minor [22]=TxPower */
+DRT.parseIBeacon = function (dataView) {
+  if (!dataView || dataView.byteLength < 23) return null;
+  if (dataView.getUint8(0) !== 0x02 || dataView.getUint8(1) !== 0x15) return null;
+  let uuid = '';
+  for (let i = 2; i < 18; i++) {
+    uuid += dataView.getUint8(i).toString(16).padStart(2, '0');
+    if (i === 5 || i === 7 || i === 9 || i === 11) uuid += '-';
+  }
+  return {
+    uuid,
+    major:   dataView.getUint16(18, false),
+    minor:   dataView.getUint16(20, false),
+    txPower: dataView.getInt8(22)
+  };
+};
+
+/* Minor 비트필드 해석: [15]SOS [14:11]BATT [10:0]NUM */
+DRT.decodeMinor = function (minor) {
+  if (minor == null) return null;
+  return {
+    sos:  !!(minor & 0x8000),
+    batt: ((minor >> 11) & 0x0F) / 15,
+    num:  minor & 0x07FF
+  };
+};
+
+/* 구역코드(Major) 해석: 상위 바이트=동, 하위 바이트=층 */
+DRT.decodeMajor = function (major) {
+  if (major == null) return null;
+  return { building: (major >> 8) & 0xFF, floor: major & 0xFF };
+};
+
+/* 광고 이벤트(advertisementreceived) → 통합 비콘 레코드 */
+DRT.parseAdv = function (ev) {
+  const name = ev.device && ev.device.name ? ev.device.name : ev.name;
+  const nm = DRT.parseName(name);
+  if (!nm) return null;                        // ★ DRT 비콘이 아니면 즉시 배제
+
+  let ib = null;
+  try {
+    const md = ev.manufacturerData;
+    if (md && typeof md.get === 'function') {
+      const dv = md.get(DRT.CONST.APPLE_COMPANY_ID);
+      if (dv) ib = DRT.parseIBeacon(dv);
+    }
+  } catch (_) { /* 브라우저가 제조사 데이터를 막은 경우 — 이름만으로 진행 */ }
+
+  const mi = ib ? DRT.decodeMinor(ib.minor) : null;
+  const mj = ib ? DRT.decodeMajor(ib.major) : null;
+
+  return {
+    id:      nm.hex,                                    // 고유 식별자
+    devId:   ev.device ? ev.device.id : null,           // 브라우저 익명 ID
+    name:    name,
+    rssi:    ev.rssi,
+    advTx:   ev.txPower != null ? ev.txPower : (ib ? ib.txPower : null),
+    sos:     nm.sos || (mi ? mi.sos : false),
+    batt:    mi ? mi.batt : null,
+    num:     mi ? mi.num : null,
+    major:   ib ? ib.major : null,
+    minor:   ib ? ib.minor : null,
+    building: mj ? mj.building : null,
+    floor:   mj ? mj.floor : null,
+    uuidOk:  ib ? (ib.uuid === DRT.CONST.IBEACON_UUID) : null,
+    t:       Date.now()
+  };
+};
+
+/* ====================================================================
+ *  6. 삼변측량 — 여러 소방관의 거리 관측으로 비콘 좌표 추정
+ * --------------------------------------------------------------------
+ *  입력: [{x, y, d, w}] (소방관 좌표 x,y[m] / 추정거리 d[m] / 가중치 w)
+ *  방법: 선형화 최소자승(첫 관측을 기준으로 차분) → 가우스-뉴턴 2회 보정
+ *  최소 3개 관측 필요. 4명 전원이면 잔차로 신뢰도까지 나옵니다.
+ * ==================================================================== */
+DRT.trilaterate = function (obs) {
+  const pts = (obs || []).filter(o =>
+    isFinite(o.x) && isFinite(o.y) && isFinite(o.d) && o.d > 0);
+  if (pts.length < 3) return null;
+
+  /* --- 1단계: 선형 최소자승 초기해 --- */
+  const ref = pts[0];
+  const A = [], b = [];
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i];
+    A.push([2 * (p.x - ref.x), 2 * (p.y - ref.y)]);
+    b.push(p.x * p.x - ref.x * ref.x + p.y * p.y - ref.y * ref.y
+           + ref.d * ref.d - p.d * p.d);
+  }
+  let ATA00 = 0, ATA01 = 0, ATA11 = 0, ATb0 = 0, ATb1 = 0;
+  for (let i = 0; i < A.length; i++) {
+    ATA00 += A[i][0] * A[i][0];
+    ATA01 += A[i][0] * A[i][1];
+    ATA11 += A[i][1] * A[i][1];
+    ATb0  += A[i][0] * b[i];
+    ATb1  += A[i][1] * b[i];
+  }
+  const det = ATA00 * ATA11 - ATA01 * ATA01;
+  if (Math.abs(det) < 1e-9) return null;             // 관측점이 일직선상
+  let x = ( ATA11 * ATb0 - ATA01 * ATb1) / det;
+  let y = (-ATA01 * ATb0 + ATA00 * ATb1) / det;
+
+  /* --- 2단계: 가우스-뉴턴 보정 (거리 잔차 직접 최소화) --- */
+  for (let it = 0; it < 8; it++) {
+    let J00 = 0, J01 = 0, J11 = 0, g0 = 0, g1 = 0;
+    for (const p of pts) {
+      const dx = x - p.x, dy = y - p.y;
+      const r  = Math.hypot(dx, dy) || 1e-6;
+      const w  = p.w != null ? p.w : 1;
+      const res = r - p.d;
+      const jx = dx / r, jy = dy / r;
+      J00 += w * jx * jx; J01 += w * jx * jy; J11 += w * jy * jy;
+      g0  += w * jx * res; g1 += w * jy * res;
+    }
+    const d2 = J00 * J11 - J01 * J01;
+    if (Math.abs(d2) < 1e-12) break;
+    const sx = -( J11 * g0 - J01 * g1) / d2;
+    const sy = -(-J01 * g0 + J00 * g1) / d2;
+    x += sx; y += sy;
+    if (Math.hypot(sx, sy) < 0.01) break;
+  }
+
+  /* --- 3단계: 잔차 기반 신뢰도 --- */
+  let ss = 0;
+  for (const p of pts) ss += Math.pow(Math.hypot(x - p.x, y - p.y) - p.d, 2);
+  const rmse = Math.sqrt(ss / pts.length);
+  const conf = Math.max(0, Math.min(1, 1 - rmse / 12));
+
+  return { x, y, rmse, conf, n: pts.length };
+};
+
+/* ====================================================================
+ *  7. MQTT 3.1.1 over WebSocket — 외부 라이브러리 없이 직접 구현
+ * --------------------------------------------------------------------
+ *  지원: CONNECT / PUBLISH(QoS0) / SUBSCRIBE / PINGREQ / DISCONNECT
+ *  현장에 CDN을 못 쓰는 상황(오프라인·차단망)을 전제로 자체 구현했습니다.
+ * ==================================================================== */
+function encLen(n) {                       // Remaining Length 가변 인코딩
+  const out = [];
+  do { let b = n % 128; n = Math.floor(n / 128); if (n > 0) b |= 0x80; out.push(b); }
+  while (n > 0);
+  return out;
+}
+function encStr(s) {                       // UTF-8 길이접두 문자열
+  const u = new TextEncoder().encode(s);
+  return [ (u.length >> 8) & 0xFF, u.length & 0xFF, ...u ];
+}
+
+DRT.MqttWs = function (url, opts) {
+  opts = opts || {};
+  this.url       = url;
+  this.clientId  = opts.clientId || ('drt-' + Math.random().toString(16).slice(2, 10));
+  this.keepalive = opts.keepalive || 30;
+  this.subs      = [];
+  this.ws        = null;
+  this.connected = false;
+  this.pid       = 1;
+  this.onmessage = opts.onmessage || function () {};
+  this.onstate   = opts.onstate   || function () {};
+  this._pingT    = null;
+  this._buf      = new Uint8Array(0);
+};
+
+DRT.MqttWs.prototype._send = function (bytes) {
+  if (this.ws && this.ws.readyState === 1) this.ws.send(new Uint8Array(bytes).buffer);
+};
+
+DRT.MqttWs.prototype.connect = function () {
+  const self = this;
+  try { this.ws = new WebSocket(this.url, 'mqtt'); }
+  catch (e) { this.onstate('error', String(e)); return; }
+  this.ws.binaryType = 'arraybuffer';
+
+  this.ws.onopen = function () {
+    const payload = [
+      ...encStr('MQTT'), 0x04,          // protocol name + level 4 (3.1.1)
+      0x02,                             // flags: clean session
+      (self.keepalive >> 8) & 0xFF, self.keepalive & 0xFF,
+      ...encStr(self.clientId)
+    ];
+    self._send([0x10, ...encLen(payload.length), ...payload]);
+  };
+
+  this.ws.onmessage = function (ev) {
+    const chunk = new Uint8Array(ev.data);
+    const merged = new Uint8Array(self._buf.length + chunk.length);
+    merged.set(self._buf); merged.set(chunk, self._buf.length);
+    self._buf = merged;
+    self._drain();
+  };
+
+  this.ws.onclose = function () {
+    self.connected = false;
+    clearInterval(self._pingT);
+    self.onstate('closed');
+  };
+  this.ws.onerror = function () { self.onstate('error', 'WebSocket 오류'); };
+};
+
+DRT.MqttWs.prototype._drain = function () {
+  const self = this;
+  for (;;) {
+    const buf = self._buf;
+    if (buf.length < 2) return;
+    /* Remaining Length 디코딩 */
+    let mult = 1, len = 0, i = 1, byte;
+    do {
+      if (i >= buf.length) return;             // 헤더가 아직 덜 옴
+      byte = buf[i++];
+      len += (byte & 0x7F) * mult;
+      mult *= 128;
+      if (mult > 128 * 128 * 128) return;
+    } while (byte & 0x80);
+    const total = i + len;
+    if (buf.length < total) return;            // 본문이 아직 덜 옴
+
+    const type = buf[0] >> 4;
+    const body = buf.subarray(i, total);
+    self._buf = buf.subarray(total);
+
+    if (type === 2) {                          // CONNACK
+      const rc = body.length > 1 ? body[1] : 1;
+      if (rc === 0) {
+        self.connected = true;
+        self.onstate('connected');
+        self.subs.forEach(t => self._subscribe(t));
+        clearInterval(self._pingT);
+        self._pingT = setInterval(() => self._send([0xC0, 0x00]),
+                                  self.keepalive * 500);
+      } else {
+        self.onstate('error', 'CONNACK 거부 코드 ' + rc);
+        try { self.ws.close(); } catch (_) {}
+      }
+    } else if (type === 3) {                   // PUBLISH
+      const qos = (buf[0] >> 1) & 0x03;
+      const tlen = (body[0] << 8) | body[1];
+      const topic = new TextDecoder().decode(body.subarray(2, 2 + tlen));
+      let p = 2 + tlen;
+      if (qos > 0) p += 2;                     // packet id (QoS0에서는 없음)
+      const msg = new TextDecoder().decode(body.subarray(p));
+      try { self.onmessage(topic, msg); } catch (e) { console.warn(e); }
+    }
+    /* SUBACK(9) / PINGRESP(13) 은 무시해도 무방 */
+  }
+};
+
+DRT.MqttWs.prototype._subscribe = function (topic) {
+  const id = this.pid++ & 0xFFFF;
+  const payload = [(id >> 8) & 0xFF, id & 0xFF, ...encStr(topic), 0x00];
+  this._send([0x82, ...encLen(payload.length), ...payload]);
+};
+
+DRT.MqttWs.prototype.subscribe = function (topic) {
+  if (this.subs.indexOf(topic) < 0) this.subs.push(topic);
+  if (this.connected) this._subscribe(topic);
+};
+
+DRT.MqttWs.prototype.publish = function (topic, message) {
+  if (!this.connected) return false;
+  const payload = [...encStr(topic), ...new TextEncoder().encode(message)];
+  this._send([0x30, ...encLen(payload.length), ...payload]);
+  return true;
+};
+
+DRT.MqttWs.prototype.close = function () {
+  clearInterval(this._pingT);
+  try { this._send([0xE0, 0x00]); this.ws.close(); } catch (_) {}
+  this.connected = false;
+};
+
+/* ====================================================================
+ *  8. Link — 전송 계층 추상화
+ * --------------------------------------------------------------------
+ *  mode: 'mqtt'  공용 MQTT 브로커 (인터넷 필요, 훈련·평시용)
+ *        'local' 현장 로컬 서버 WebSocket (인터넷 불필요, 실화재용)
+ *        'auto'  local 먼저 시도 → 실패 시 mqtt 자동 전환
+ *        'off'   전송 안 함 (단독 운용)
+ * ==================================================================== */
+DRT.Link = function (cfg) {
+  this.cfg       = Object.assign({
+    mode:   'auto',
+    site:   'demo',
+    unit:   'FF1',
+    broker: 'wss://broker.emqx.io:8084/mqtt',
+    localUrl: '',                      // 예: wss://192.168.4.1:8443/ws
+    role:   'unit'                     // 'unit' | 'control'
+  }, cfg || {});
+  this.state     = 'idle';             // idle|connecting|online|offline
+  this.active    = null;               // 'mqtt' | 'local'
+  this.onmessage = function () {};
+  this.onstate   = function () {};
+  this._mqtt = null; this._ws = null;
+  this._retry = null; this._tries = 0;
+};
+
+DRT.Link.prototype.topicRep = function (unit) {
+  return 'deuring/' + this.cfg.site + '/rep/' + (unit || this.cfg.unit);
+};
+DRT.Link.prototype.topicCmd = function () {
+  return 'deuring/' + this.cfg.site + '/cmd';
+};
+
+DRT.Link.prototype._set = function (s, detail) {
+  this.state = s;
+  try { this.onstate(s, this.active, detail); } catch (_) {}
+};
+
+DRT.Link.prototype.start = function () {
+  this.stop(true);
+  if (this.cfg.mode === 'off') { this.active = null; this._set('idle'); return; }
+  this._set('connecting');
+  if (this.cfg.mode === 'local' || (this.cfg.mode === 'auto' && this.cfg.localUrl)) {
+    this._startLocal();
+  } else {
+    this._startMqtt();
+  }
+};
+
+DRT.Link.prototype._startLocal = function () {
+  const self = this;
+  if (!this.cfg.localUrl) { this._fallback('로컬 서버 주소 없음'); return; }
+  let ws;
+  try { ws = new WebSocket(this.cfg.localUrl); }
+  catch (e) { this._fallback('로컬 연결 실패'); return; }
+  this._ws = ws;
+
+  const guard = setTimeout(function () {
+    if (ws.readyState !== 1) { try { ws.close(); } catch (_) {} }
+  }, 4000);
+
+  ws.onopen = function () {
+    clearTimeout(guard);
+    self.active = 'local';
+    self._tries = 0;
+    ws.send(JSON.stringify({ type: 'hello', role: self.cfg.role,
+                             site: self.cfg.site, unit: self.cfg.unit }));
+    self._set('online');
+  };
+  ws.onmessage = function (ev) {
+    try {
+      const m = JSON.parse(ev.data);
+      self.onmessage(m.topic || 'local', m.payload != null ? m.payload : ev.data);
+    } catch (_) { self.onmessage('local', ev.data); }
+  };
+  ws.onclose = function () {
+    clearTimeout(guard);
+    if (self.active === 'local') { self.active = null; self._set('offline'); }
+    if (self.cfg.mode === 'auto') self._fallback('로컬 서버 끊김');
+    else self._scheduleRetry();
+  };
+  ws.onerror = function () { /* onclose가 이어서 호출됩니다 */ };
+};
+
+DRT.Link.prototype._fallback = function (why) {
+  if (this.cfg.mode === 'local') { this._scheduleRetry(); return; }
+  this._startMqtt(why);
+};
+
+DRT.Link.prototype._startMqtt = function () {
+  const self = this;
+  const m = new DRT.MqttWs(this.cfg.broker, {
+    clientId: 'drt-' + this.cfg.role + '-' + this.cfg.unit + '-' +
+              Math.random().toString(16).slice(2, 8),
+    onstate: function (s, d) {
+      if (s === 'connected') { self.active = 'mqtt'; self._tries = 0; self._set('online'); }
+      else if (s === 'closed' || s === 'error') {
+        if (self.active === 'mqtt') { self.active = null; self._set('offline', d); }
+        self._scheduleRetry();
+      }
+    },
+    onmessage: function (t, p) { self.onmessage(t, p); }
+  });
+  this._mqtt = m;
+  m.connect();
+  if (this.cfg.role === 'control') m.subscribe('deuring/' + this.cfg.site + '/rep/+');
+  else                             m.subscribe(this.topicCmd());
+};
+
+DRT.Link.prototype._scheduleRetry = function () {
+  const self = this;
+  clearTimeout(this._retry);
+  this._tries = Math.min(this._tries + 1, 6);
+  const wait = Math.min(30000, 1500 * Math.pow(1.7, this._tries));
+  this._retry = setTimeout(function () { self.start(); }, wait);
+};
+
+DRT.Link.prototype.publish = function (topic, obj) {
+  const s = typeof obj === 'string' ? obj : JSON.stringify(obj);
+  if (this.active === 'local' && this._ws && this._ws.readyState === 1) {
+    this._ws.send(JSON.stringify({ type: 'pub', topic: topic, payload: s }));
+    return true;
+  }
+  if (this.active === 'mqtt' && this._mqtt) return this._mqtt.publish(topic, s);
+  return false;
+};
+
+DRT.Link.prototype.stop = function (quiet) {
+  clearTimeout(this._retry);
+  if (this._mqtt) { try { this._mqtt.close(); } catch (_) {} this._mqtt = null; }
+  if (this._ws)   { try { this._ws.onclose = null; this._ws.close(); } catch (_) {} this._ws = null; }
+  this.active = null;
+  if (!quiet) this._set('idle');
+};
+
+/* ====================================================================
+ *  9. 잡다한 유틸
+ * ==================================================================== */
+DRT.fmtDist = function (d) {
+  if (d == null) return '—';
+  if (d < 10) return d.toFixed(1) + 'm';
+  return Math.round(d) + 'm';
+};
+DRT.fmtAge = function (ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + '초 전';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + '분 ' + (s % 60) + '초 전';
+  return Math.floor(m / 60) + '시간 ' + (m % 60) + '분 전';
+};
+DRT.compass16 = function (deg) {
+  const names = ['북','북북동','북동','동북동','동','동남동','남동','남남동',
+                 '남','남남서','남서','서남서','서','서북서','북서','북북서'];
+  return names[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+};
+DRT.uid = function () {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+};
+
+global.DRT = DRT;
+if (typeof module !== 'undefined' && module.exports) module.exports = DRT;
+
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+'use strict';
+/* ======================================================================
+ *  더링투어 소방관 앱
+ * ====================================================================== */
+
+const $ = s => document.querySelector(s);
+const DEF = {
+  site:'demo-site', unit:'FF1', name:'1팀', floor:'', zone:'',
+  tx:-59, n:2.8, kal:8, mode:'auto',
+  local:'', broker:'wss://broker.emqx.io:8084/mqtt',
+  rep:2, ibea:false, sound:true, wake:true, sim:false
+};
+let CFG = Object.assign({}, DEF);
+try { Object.assign(CFG, JSON.parse(localStorage.getItem('drt.cfg') || '{}')); } catch(e){}
+function saveCfg(){ try{ localStorage.setItem('drt.cfg', JSON.stringify(CFG)); }catch(e){} }
+
+/* --- QR 프로비저닝 ---------------------------------------------------
+ * QR에 담긴 쿼리스트링으로 설정을 자동 주입합니다.
+ * 현장에서 대원이 QR만 찍으면 현장코드·대원ID·서버주소가 한 번에 들어갑니다.
+ * 예) index.html?site=busan-2026&unit=FF2&name=2팀이&local=wss://192.168.4.1:8443/ws
+ * ------------------------------------------------------------------ */
+(function applyQuery(){
+  const q = new URLSearchParams(location.search);
+  if (![...q.keys()].length) return;
+  const str = ['site','unit','name','floor','zone','local','broker','mode'];
+  const num = { tx:v=>+v, n:v=>+v, kal:v=>+v, rep:v=>+v };
+  const bool= { ibea:1, sound:1, wake:1, sim:1 };
+  let hit = 0;
+  str.forEach(k => { if (q.has(k)){ CFG[k] = q.get(k); hit++; } });
+  Object.keys(num).forEach(k => {
+    if (q.has(k)){ const v = num[k](q.get(k)); if (isFinite(v)){ CFG[k] = v; hit++; } }
+  });
+  Object.keys(bool).forEach(k => {
+    if (q.has(k)){ CFG[k] = /^(1|true|y|on)$/i.test(q.get(k)); hit++; }
+  });
+  if (hit){
+    saveCfg();
+    /* 주소창을 깨끗이 정리 — 새로고침 시 중복 적용 방지 */
+    try { history.replaceState(null, '', location.pathname); } catch(e){}
+  }
+})();
+
+/* ---------------- 상태 ---------------- */
+const beacons = new Map();      // id -> record
+let scanning = false;
+let scanTier = null;            // 'LE_SCAN' | 'WATCH_ADV' | 'SIM'
+let leScan = null, advAbort = null, wakeLock = null;
+let heading = null, headingAcc = null;
+let link = null, repTimer = null, simTimer = null, uiTimer = null;
+let selfSos = false;
+let diagLog = [];
+// 등록 정보는 45초 후 사라지는 표시용 레코드와 별도로 보관한다.
+const knownDevices = new Map(), deviceWatches = new Map();
+let scanEpoch = 0, scanBusy = false, choosingDevice = false;
+let lastAdvertisement = 0, lastRecovery = 0, recoveryAttempts = 0;
+let scanStartedAt = 0, recoveryTimer = null;
+const SCAN_SILENCE_MS = 15000, RECOVERY_GAP_MS = 20000, MAX_RECOVERY = 3;
+
+function scanForeground(){
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
+function clearReceivers(){
+  try { if (leScan) leScan.stop(); } catch(e){}
+  leScan = null;
+  try { navigator.bluetooth?.removeEventListener('advertisementreceived', onAdv); } catch(e){}
+  for (const w of deviceWatches.values()) {
+    w.controller.abort();
+    w.device.removeEventListener('advertisementreceived', onAdv);
+  }
+  deviceWatches.clear();
+}
+async function recoverScan(reason){
+  if (!scanning || scanTier === 'SIM' || scanBusy || choosingDevice || !scanForeground()) return;
+  if (scanTier !== 'WATCH_ADV' || !knownDevices.size || recoveryAttempts >= MAX_RECOVERY) return;
+  if (Date.now() - lastRecovery < RECOVERY_GAP_MS) return;
+  scanBusy = true;
+  const epoch = scanEpoch;
+  lastRecovery = Date.now(); recoveryAttempts++;
+  log('수신 복구 '+recoveryAttempts+'/'+MAX_RECOVERY+' — '+reason);
+  clearReceivers();
+  try {
+    await Promise.all([...knownDevices.values()].map(d => watchDevice(d, epoch)));
+  } finally {
+    if (epoch === scanEpoch) scanBusy = false;
+  }
+}
+function checkScanHealth(){
+  if (!scanning || scanTier === 'SIM' || scanBusy || choosingDevice || !scanForeground()) return;
+  const silent = Date.now() - (lastAdvertisement || scanStartedAt);
+  const inactive = scanTier === 'WATCH_ADV'
+    ? [...knownDevices.values()].some(d => !deviceWatches.has(d.id) || d.watchingAdvertisements === false)
+    : !leScan?.active;
+  if (inactive || silent > SCAN_SILENCE_MS) {
+    if (scanTier === 'WATCH_ADV') recoverScan(inactive ? '수신 감시 중단' : '전체 비콘 15초 미수신');
+  }
+}
+
+function log(s){
+  diagLog.unshift(new Date().toLocaleTimeString('ko-KR') + '  ' + s);
+  if (diagLog.length > 40) diagLog.pop();
+  const d = $('#diag'); if (d) d.textContent = diagText();
+}
+function diagText(){
+  return [
+    'UA         : ' + navigator.userAgent.slice(0,70),
+    'Bluetooth  : ' + (navigator.bluetooth ? '있음' : '없음'),
+    'requestLEScan   : ' + (navigator.bluetooth && navigator.bluetooth.requestLEScan ? '지원' : '미지원'),
+    'getDevices      : ' + (navigator.bluetooth && navigator.bluetooth.getDevices ? '지원' : '미지원'),
+    'secureContext   : ' + window.isSecureContext,
+    '스캔 방식  : ' + (scanTier || '-'),
+    '나침반     : ' + (heading == null ? '없음' : Math.round(heading) + '°'),
+    '전송       : ' + (link ? link.state + ' / ' + (link.active||'-') : '-'),
+    '추적 비콘  : ' + beacons.size,
+    '─────────────',
+    diagLog.join('\n')
+  ].join('\n');
+}
+
+/* ======================================================================
+ *  1. 비콘 레코드
+ * ====================================================================== */
+function getRec(id){
+  let r = beacons.get(id);
+  if (!r){
+    r = {
+      id, name:'DRT-'+id, first:Date.now(), last:0, count:0,
+      kal:new DRT.Kalman({R:CFG.kal, Q:0.6}),
+      bear:new DRT.Bearing(),
+      rssi:null, rssiF:null, dist:null, grade:null,
+      sos:false, batt:null, major:null, minor:null, floor:null, building:null,
+      bearing:null, conf:0, rescued:false, alerted:false, device:null
+    };
+    beacons.set(id, r);
+  }
+  return r;
+}
+
+function ingest(p){
+  if (!p) return;
+  const r = getRec(p.id);
+  const isNew = r.count === 0;
+  r.last = p.t; r.count++;
+  r.name = p.name;
+  r.rssi = p.rssi;
+  r.kal.R = CFG.kal;
+  r.rssiF = r.kal.push(p.rssi);
+  r.dist  = DRT.rssiToDist(r.rssiF, CFG.tx, CFG.n);
+  r.grade = DRT.grade(r.dist, r.rssiF);
+  r.sos = !!p.sos;                       // 이름/Minor가 현재 상태를 그대로 반영
+  if (!r.sos) r.sosAlerted = false;      // 해제되면 다음 발신 때 다시 경보
+  if (p.batt  != null) r.batt  = p.batt;
+  if (p.major != null) r.major = p.major;
+  if (p.minor != null) r.minor = p.minor;
+  if (p.floor != null) r.floor = p.floor;
+  if (p.building != null) r.building = p.building;
+
+  if (heading != null) r.bear.push(heading, p.rssi, p.t);
+  const est = r.bear.estimate();
+  if (est){ r.bearing = est.bearing; r.conf = est.conf; }
+
+  if (isNew && !r.alerted){ r.alerted = true; alertNew(r); }
+  if (r.sos && !r.sosAlerted){ r.sosAlerted = true; alertSos(r); }
+}
+
+/* ======================================================================
+ *  2. 스캔 엔진 — 3단계 폴백
+ * ====================================================================== */
+async function startScan(){
+  if (CFG.sim) { startSim(); return; }
+  // 시작 버튼의 사용자 클릭 안에서 즉시 기기 선택창을 요청한다.
+  return addDevice();
+}
+
+async function watchDevice(d, epoch = scanEpoch){
+  let timeout;
+  const controller = new AbortController();
+  try {
+    if (epoch !== scanEpoch) return false;
+    if (typeof d.watchAdvertisements !== 'function') throw new Error('광고 수신 API 미지원');
+    const old = deviceWatches.get(d.id);
+    if (old) { old.controller.abort(); old.device.removeEventListener('advertisementreceived', onAdv); }
+    knownDevices.set(d.id, d);
+    deviceWatches.set(d.id, {device:d, controller});
+    d.addEventListener('advertisementreceived', onAdv);
+    await Promise.race([
+      d.watchAdvertisements({ signal: controller.signal }),
+      new Promise((_, reject) => { timeout = setTimeout(() => {
+        controller.abort(); reject(new Error('광고 수신 시작 시간 초과'));
+      }, 6000); })
+    ]);
+    if (epoch !== scanEpoch || controller.signal.aborted) return false;
+    const r = getRec((DRT.parseName(d.name)||{hex:d.name}).hex);
+    r.device = d;
+    return true;
+  } catch (e){
+    controller.abort();
+    if (deviceWatches.get(d.id)?.controller === controller) {
+      d.removeEventListener('advertisementreceived', onAdv);
+      deviceWatches.delete(d.id);
+    }
+    if (epoch === scanEpoch) log('watch 실패(' + d.name + '): ' + e.name + ' — ' + e.message);
+    return false;
+  } finally { clearTimeout(timeout); }
+}
+
+/* ＋ 버튼 — 기기 선택창으로 비콘 1개 등록 (Tier2 경로) */
+async function addDevice(){
+  if (!navigator.bluetooth || !navigator.bluetooth.requestDevice){
+    banner('이 브라우저에서는 등록할 수 없습니다.'); return;
+  }
+  // 사용자 클릭은 자동 복구보다 우선한다. requestDevice 앞에 await를 두지 않는다.
+  const resume = scanning || scanBusy;
+  const epoch = ++scanEpoch;
+  choosingDevice = true;
+  clearReceivers();
+  scanBusy = false;
+  let selected = null;
+  try {
+    selected = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: DRT.CONST.NAME_PREFIX }],
+      optionalManufacturerData: [DRT.CONST.APPLE_COMPANY_ID]
+    });
+    if (epoch !== scanEpoch) return;
+    knownDevices.set(selected.id, selected);
+    log('기기 등록 ' + selected.name);
+  } catch (e){
+    if (epoch !== scanEpoch) return;
+    if (e.name !== 'NotFoundError') {
+      log('등록 실패: ' + e.name + ' — ' + e.message);
+      banner('등록 실패: ' + e.name + ' — ' + e.message);
+    }
+  } finally {
+    try {
+      if (epoch === scanEpoch && (selected || resume) && knownDevices.size) {
+        scanTier = 'WATCH_ADV';
+        scanBusy = true;
+        lastAdvertisement = 0; recoveryAttempts = 0; lastRecovery = 0;
+        const results = await Promise.all([...knownDevices.values()].map(d => watchDevice(d, epoch)));
+        if (epoch === scanEpoch) {
+          onScanStarted();
+          const n = results.filter(Boolean).length;
+          log('등록 후 수신 재개 ' + n + '/' + knownDevices.size + '대');
+          if (n === 0) {
+            log('광고 수신 시작 실패 — 재스캔 필요');
+          } else if (selected) banner('등록: ' + selected.name, 'ok');
+        }
+      }
+    } finally {
+      if (epoch === scanEpoch) {
+        choosingDevice = false;
+        scanBusy = false;
+        if (scanning) setTimeout(checkScanHealth, 500);
+      }
+    }
+  }
+}
+
+function onAdv(ev){
+  if (!scanning && !scanBusy && !choosingDevice) return;
+  try {
+    const p = DRT.parseAdv(ev);
+    if (!p || !Number.isFinite(p.rssi) || p.rssi >= 0 || p.rssi < -127) return;
+    lastAdvertisement = Date.now(); recoveryAttempts = 0;
+    ingest(p);
+  } catch(e){ log('파싱오류 ' + e.message); }
+}
+
+function onScanStarted(){
+  scanning = true;
+  scanStartedAt = Date.now();
+  clearInterval(recoveryTimer);
+  recoveryTimer = setInterval(checkScanHealth, 2000);
+  $('#btnScan').textContent = '스캔 정지';
+  $('#btnScan').classList.remove('primary'); $('#btnScan').classList.add('stop');
+  setPill('#pillScan', scanTier === 'SIM' ? '시뮬레이션' : '스캔중', scanTier === 'SIM' ? 'warn' : 'on');
+  requestWake();
+  startReporting();
+}
+
+function stopScan(){
+  ++scanEpoch; scanBusy = false; choosingDevice = false;
+  scanning = false;
+  clearInterval(recoveryTimer); recoveryTimer = null;
+  clearReceivers();
+  try { if (leScan) leScan.stop(); } catch(e){}
+  leScan = null;
+  try { navigator.bluetooth && navigator.bluetooth.removeEventListener('advertisementreceived', onAdv); } catch(e){}
+  try { if (advAbort) advAbort.abort(); } catch(e){}
+  advAbort = null;
+  clearInterval(simTimer); simTimer = null;
+  scanTier = null;
+  $('#btnScan').textContent = '스캔 시작';
+  $('#btnScan').classList.add('primary'); $('#btnScan').classList.remove('stop');
+  setPill('#pillScan','대기','');
+  releaseWake();
+  stopReporting();
+  log('스캔 정지');
+}
+
+/* ======================================================================
+ *  3. 시뮬레이션 모드 — 하드웨어 없이 전체 흐름 시연
+ * ====================================================================== */
+let simWorld = null;
+function startSim(){
+  scanTier = 'SIM';
+  simWorld = {
+    me: { x:0, y:0 },
+    bs: [
+      { id:'A1B2', x:  3.5, y:  2.0, sos:false, batt:.85, major:0x0103 },
+      { id:'C4D5', x: -8.0, y:  6.0, sos:true,  batt:.40, major:0x0103 },
+      { id:'E6F7', x: 14.0, y:-11.0, sos:false, batt:.93, major:0x0103 },
+      { id:'0A9B', x:-22.0, y:-18.0, sos:false, batt:.20, major:0x0102 },
+      { id:'77CC', x: 34.0, y: 26.0, sos:false, batt:.66, major:0x0104 }
+    ],
+    t0: Date.now()
+  };
+  simTimer = setInterval(simTick, 220);
+  onScanStarted();
+  log('시뮬레이션 시작 — 가상 비콘 5개');
+}
+
+function simTick(){
+  const w = simWorld; if (!w) return;
+  const el = (Date.now() - w.t0) / 1000;
+  w.me.x = 6 * Math.sin(el / 11);          // 대원이 천천히 이동하는 상황
+  w.me.y = 4 * Math.cos(el / 13);
+  const h = heading != null ? heading : (el * 40) % 360;   // 나침반 없으면 자동 회전
+  for (const b of w.bs){
+    const dx = b.x - w.me.x, dy = b.y - w.me.y;
+    const d  = Math.max(0.3, Math.hypot(dx, dy));
+    let bearing = Math.atan2(dx, dy) * 180 / Math.PI;      // 북=+y 기준
+    if (bearing < 0) bearing += 360;
+    /* 인체 차폐 변조 재현: 비콘이 등 뒤면 6dB 감쇠 */
+    const rel = ((bearing - h) * Math.PI / 180);
+    const shadow = -3 + 3 * Math.cos(rel);
+    const noise  = (Math.random() + Math.random() + Math.random() - 1.5) * 2.6;
+    const rssi = Math.round(DRT.distToRssi(d, CFG.tx, CFG.n) + shadow + noise);
+    ingest({
+      id:b.id, name:(b.sos?'DRTS-':'DRT-')+b.id, rssi,
+      sos:b.sos, batt:b.batt, major:b.major,
+      minor:(b.sos?0x8000:0)|(Math.round(b.batt*15)<<11),
+      floor:b.major & 0xFF, building:(b.major>>8)&0xFF, t:Date.now()
+    });
+  }
+}
+
+/* ======================================================================
+ *  4. 나침반
+ * ====================================================================== */
+function onOrient(e){
+  let h = null;
+  if (typeof e.webkitCompassHeading === 'number'){      // iOS: 이미 진북 기준
+    h = e.webkitCompassHeading;
+    headingAcc = e.webkitCompassAccuracy;
+  } else if (e.absolute && typeof e.alpha === 'number'){ // Android 절대방위
+    h = (360 - e.alpha) % 360;
+  } else if (typeof e.alpha === 'number'){
+    h = (360 - e.alpha) % 360;                           // 상대값 — 정확도 낮음
+  }
+  if (h != null && isFinite(h)) heading = (h + 360) % 360;
+}
+
+async function enableCompass(){
+  try {
+    const D = window.DeviceOrientationEvent;
+    if (D && typeof D.requestPermission === 'function'){    // iOS 13+
+      const st = await D.requestPermission();
+      if (st !== 'granted'){ banner('나침반 권한이 거부되었습니다.'); return; }
+    }
+    window.addEventListener('deviceorientationabsolute', onOrient, true);
+    window.addEventListener('deviceorientation', onOrient, true);
+    banner('나침반 활성화. 폰을 가슴 앞에 들고 제자리에서 천천히 한 바퀴 도세요.', 'ok', 5000);
+    log('나침반 활성화');
+  } catch(e){ log('나침반 실패: ' + e.message); }
+}
+
+/* ======================================================================
+ *  5. 통제실 전송
+ * ====================================================================== */
+function initLink(){
+  if (link) link.stop(true);
+  link = new DRT.Link({
+    mode: CFG.mode, site: CFG.site, unit: CFG.unit,
+    broker: CFG.broker, localUrl: CFG.local, role:'unit'
+  });
+  link.onstate = (s, active) => {
+    const map = { online:['전송 '+(active==='local'?'로컬':'MQTT'),'on'],
+                  connecting:['연결중','warn'], offline:['끊김','err'], idle:['전송꺼짐',''] };
+    const v = map[s] || ['?',''];
+    setPill('#pillLink', v[0], v[1]);
+    $('#diag') && ($('#diag').textContent = diagText());
+  };
+  link.onmessage = (topic, payload) => {
+    try {
+      const m = JSON.parse(payload);
+      if (m.type === 'order') banner('통제실 지시: ' + m.text, 'warn', 12000);
+    } catch(e){}
+  };
+  link.start();
+}
+
+function startReporting(){
+  stopReporting();
+  repTimer = setInterval(report, CFG.rep * 1000);
+  report();
+}
+function stopReporting(){ clearInterval(repTimer); repTimer = null; }
+
+function report(){
+  if (!link || link.state !== 'online') return;
+  const now = Date.now();
+  const list = [];
+  beacons.forEach(r => {
+    if (now - r.last > DRT.CONST.DROP_MS) return;
+    list.push({
+      id:r.id, major:r.major, minor:r.minor,
+      rssi:r.rssi, rssiF:r.rssiF != null ? +r.rssiF.toFixed(1) : null,
+      dist:r.dist != null ? +r.dist.toFixed(2) : null,
+      grade:r.grade ? r.grade.key : null,
+      sos:r.sos, batt:r.batt, floor:r.floor,
+      bearing:r.bearing != null ? Math.round(r.bearing) : null,
+      conf:+r.conf.toFixed(2), rescued:r.rescued,
+      seen:r.last, n:r.count
+    });
+  });
+  link.publish(link.topicRep(), {
+    v: DRT.CONST.VERSION, t: now,
+    unit: {
+      id:CFG.unit, name:CFG.name, floor:CFG.floor, zone:CFG.zone,
+      heading: heading != null ? Math.round(heading) : null,
+      tier: scanTier, sos: selfSos
+    },
+    beacons: list
+  });
+}
+
+/* ======================================================================
+ *  6. UI
+ * ====================================================================== */
+function setPill(sel, text, cls){
+  const el = $(sel); if (!el) return;
+  el.textContent = text;
+  el.className = 'pill' + (cls ? ' ' + cls : '');
+}
+
+let bannerT = null;
+function banner(msg, kind, ms){
+  const b = $('#banner');
+  b.textContent = msg;
+  b.style.background = kind === 'ok' ? 'var(--ok)' : kind === 'warn' ? 'var(--warn)' : 'var(--danger)';
+  b.style.color = (kind === 'ok' || kind === 'warn') ? '#0b0f14' : '#fff';
+  b.classList.add('show');
+  clearTimeout(bannerT);
+  bannerT = setTimeout(() => b.classList.remove('show'), ms || 6000);
+}
+
+/* 소리 — 파일 없이 WebAudio로 생성 */
+let ac = null;
+function beep(freq, dur, vol){
+  if (!CFG.sound) return;
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === 'suspended') ac.resume();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'square'; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol || 0.18, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+    o.connect(g); g.connect(ac.destination);
+    o.start(); o.stop(ac.currentTime + dur);
+  } catch(e){}
+}
+function vibe(p){ if (CFG.sound && navigator.vibrate) try{ navigator.vibrate(p); }catch(e){} }
+
+function alertNew(r){
+  beep(1180, .16); setTimeout(()=>beep(1480,.20), 170);
+  vibe([90,60,90]);
+  banner('대피자 발견  ' + r.name, 'ok', 5000);
+}
+function alertSos(r){
+  for (let i=0;i<4;i++) setTimeout(()=>beep(1900,.13,.3), i*200);
+  vibe([200,80,200,80,400]);
+  banner('🆘 긴급신호  ' + r.name, null, 15000);
+}
+
+/* ---------- 목록 렌더 ---------- */
+function render(){
+  const now = Date.now();
+  const arr = [];
+  beacons.forEach(r => {
+    if (now - r.last > DRT.CONST.DROP_MS){ beacons.delete(r.id); return; }
+    arr.push(r);
+  });
+  arr.sort((a,b) => {
+    if (a.rescued !== b.rescued) return a.rescued ? 1 : -1;
+    if (a.sos !== b.sos) return a.sos ? -1 : 1;
+    return (a.dist == null ? 1e9 : a.dist) - (b.dist == null ? 1e9 : b.dist);
+  });
+
+  const list = $('#list');
+  if (!arr.length){
+    if (!$('#empty')){
+      list.innerHTML = '<div id="empty">' +
+        (scanning ? '탐색 중… 비콘 신호를 기다립니다.' :
+         '스캔을 시작하면 주변 대피 비콘이<br>여기에 표시됩니다.') + '</div>';
+    } else {
+      $('#empty').innerHTML = scanning ? '탐색 중… 비콘 신호를 기다립니다.'
+        : '스캔을 시작하면 주변 대피 비콘이<br>여기에 표시됩니다.';
+    }
+    drawRadar([]);
+    return;
+  }
+
+  let html = '';
+  for (const r of arr){
+    const age = now - r.last;
+    const stale = age > DRT.CONST.STALE_MS;
+    const g = r.grade || DRT.CONST.GRADES[4];
+    const bars = DRT.rssiToBars(r.rssiF);
+    let barHtml = '';
+    for (let i=0;i<5;i++){
+      const on = bars > i/5;
+      barHtml += '<i style="height:'+(6+i*3)+'px;background:'+(on?g.color:'var(--line)')+'"></i>';
+    }
+    const tags = [];
+    if (r.sos) tags.push('<span class="tag red">🆘 긴급</span>');
+    if (r.floor != null) tags.push('<span class="tag">'+r.floor+'층</span>');
+    if (r.batt != null) tags.push('<span class="tag'+(r.batt<.25?' red':'')+'">🔋 '+Math.round(r.batt*100)+'%</span>');
+    if (stale) tags.push('<span class="tag">신호유실 '+DRT.fmtAge(age)+'</span>');
+    if (r.rescued) tags.push('<span class="tag grn">구조완료</span>');
+
+    html +=
+    '<div class="card'+(r.sos&&!r.rescued?' sos':'')+(stale?' stale':'')+(r.rescued?' done':'')+'">'+
+      arrowSvg(r) +
+      '<div><div class="bid">'+r.name+'</div>'+
+        '<div class="bmeta">'+
+          (r.bearing!=null && r.conf>.25
+            ? DRT.compass16(relBearing(r.bearing))+' 방향 · 신뢰 '+Math.round(r.conf*100)+'%'
+            : '방향 추정중 — 제자리에서 한 바퀴') +
+          '<br>RSSI '+(r.rssi!=null?r.rssi:'—')+' dBm'+
+          (r.rssiF!=null?' (평활 '+r.rssiF.toFixed(1)+')':'')+
+          ' · 수신 '+r.count+'회'+
+        '</div>'+
+        '<div class="tagrow">'+tags.join('')+'</div>'+
+      '</div>'+
+      '<div><div class="bdist" style="color:'+g.color+'">'+DRT.fmtDist(r.dist)+'</div>'+
+        '<div class="bgrade" style="color:'+g.color+'">'+g.label+'</div>'+
+        '<div class="bars">'+barHtml+'</div></div>'+
+      '<button class="rescue'+(r.rescued?' done':'')+'" data-id="'+r.id+'">'+
+        (r.rescued?'✓ 구조완료 — 취소하려면 누르세요':'이 대피자 구조완료로 표시')+'</button>'+
+    '</div>';
+  }
+  list.innerHTML = html;
+  list.querySelectorAll('.rescue').forEach(b => {
+    b.onclick = () => {
+      const r = beacons.get(b.dataset.id);
+      if (r){ r.rescued = !r.rescued; report(); render(); }
+    };
+  });
+  drawRadar(arr);
+}
+
+/* 절대방위 → 내가 보는 방향 기준 상대각 */
+function relBearing(abs){
+  if (heading == null) return abs;
+  return ((abs - heading) % 360 + 360) % 360;
+}
+
+function arrowSvg(r){
+  const g = r.grade || DRT.CONST.GRADES[4];
+  if (r.bearing == null || r.conf < 0.25){
+    /* 방향 미상 — 거리 링만 */
+    return '<svg class="arrow" viewBox="0 0 48 48">'+
+      '<circle cx="24" cy="24" r="17" fill="none" stroke="'+g.color+'" stroke-width="2.5" opacity=".35"/>'+
+      '<circle cx="24" cy="24" r="9" fill="none" stroke="'+g.color+'" stroke-width="2.5" opacity=".6"/>'+
+      '<circle cx="24" cy="24" r="3" fill="'+g.color+'"/></svg>';
+  }
+  const a = relBearing(r.bearing);
+  return '<svg class="arrow" viewBox="0 0 48 48">'+
+    '<circle cx="24" cy="24" r="21" fill="none" stroke="var(--line)" stroke-width="2"/>'+
+    '<g transform="rotate('+a.toFixed(0)+' 24 24)">'+
+      '<path d="M24 6 L33 30 L24 25 L15 30 Z" fill="'+g.color+'" opacity="'+(0.4+0.6*r.conf).toFixed(2)+'"/>'+
+    '</g></svg>';
+}
+
+/* ---------- 레이더 ---------- */
+const cv = $('#radar'), cx = cv.getContext('2d');
+function drawRadar(arr){
+  const W = cv.width, H = cv.height, cxp = W/2, cyp = H/2;
+  const R = W/2 - 24;
+  cx.clearRect(0,0,W,H);
+
+  const RINGS = [2, 5, 10, 25, 50];
+  const scale = d => R * Math.sqrt(Math.min(d, 50) / 50);
+
+  /* 거리 링 — 눈금은 좌하단 대각선에 배치해 전방/후방 표기와 겹치지 않게 함 */
+  cx.font = '600 18px sans-serif'; cx.textAlign = 'center';
+  for (const rr of RINGS){
+    const rad = scale(rr);
+    cx.beginPath(); cx.arc(cxp, cyp, rad, 0, 7);
+    cx.strokeStyle = '#243444'; cx.lineWidth = 2; cx.stroke();
+    const lx = cxp - rad * 0.707, ly = cyp + rad * 0.707;
+    cx.fillStyle = '#0b0f14';
+    cx.fillRect(lx - 20, ly - 11, 40, 22);          // 링 위 글자 가독성 확보
+    cx.fillStyle = '#4a6076';
+    cx.fillText(rr + 'm', lx, ly + 6);
+  }
+  /* 십자선 + 방위 */
+  cx.strokeStyle = '#1c2836'; cx.lineWidth = 2;
+  cx.beginPath();
+  cx.moveTo(cxp - R, cyp); cx.lineTo(cxp + R, cyp);
+  cx.moveTo(cxp, cyp - R); cx.lineTo(cxp, cyp + R);
+  cx.stroke();
+  cx.fillStyle = '#5d7186'; cx.font = '700 20px sans-serif';
+  cx.fillText('전방', cxp, cyp - R - 4);
+  cx.fillText('후방', cxp, cyp + R + 20);
+
+  /* 나 */
+  cx.beginPath(); cx.arc(cxp, cyp, 9, 0, 7);
+  cx.fillStyle = '#ff8a3d'; cx.fill();
+  cx.beginPath(); cx.moveTo(cxp, cyp-22); cx.lineTo(cxp-8, cyp-6); cx.lineTo(cxp+8, cyp-6); cx.closePath();
+  cx.fillStyle = '#ff8a3d'; cx.fill();
+
+  /* 비콘 */
+  const now = Date.now();
+  for (const r of arr){
+    if (r.dist == null) continue;
+    const g = r.grade || DRT.CONST.GRADES[4];
+    const rad = scale(r.dist);
+    const known = r.bearing != null && r.conf >= 0.25;
+    if (!known){
+      /* 방향 미상 — 해당 거리의 원호 전체를 흐리게 */
+      cx.beginPath(); cx.arc(cxp, cyp, rad, 0, 7);
+      cx.strokeStyle = g.color; cx.globalAlpha = .28; cx.lineWidth = 7; cx.stroke();
+      cx.globalAlpha = 1;
+      continue;
+    }
+    const a = (relBearing(r.bearing) - 90) * Math.PI / 180;
+    const px = cxp + Math.cos(a) * rad, py = cyp + Math.sin(a) * rad;
+    /* 신뢰도만큼의 각도 부채꼴 */
+    const spread = (1 - r.conf) * Math.PI * 0.7 + 0.12;
+    cx.beginPath(); cx.moveTo(cxp, cyp);
+    cx.arc(cxp, cyp, rad, a - spread/2, a + spread/2);
+    cx.closePath();
+    cx.fillStyle = g.color; cx.globalAlpha = .13; cx.fill(); cx.globalAlpha = 1;
+
+    const stale = now - r.last > DRT.CONST.STALE_MS;
+    cx.globalAlpha = stale ? .35 : 1;
+    if (r.sos && !r.rescued){
+      cx.beginPath(); cx.arc(px, py, 22 + 6*Math.sin(now/180), 0, 7);
+      cx.strokeStyle = '#d03b3b'; cx.lineWidth = 3; cx.stroke();
+    }
+    cx.beginPath(); cx.arc(px, py, 13, 0, 7);
+    cx.fillStyle = r.rescued ? '#0ca30c' : g.color; cx.fill();
+    cx.fillStyle = '#0b0f14'; cx.font = '800 16px sans-serif';
+    cx.fillText(r.id.slice(-2), px, py + 6);
+    cx.globalAlpha = 1;
+  }
+
+  $('#radarInfo').innerHTML =
+    (heading != null ? '방위 ' + Math.round(heading) + '° ' + DRT.compass16(heading)
+                     : '방위 — <b style="color:#ff8a3d">🧭 눌러 활성화</b>') +
+    '<br>추적 ' + arr.length + '개 · ' + (scanTier || '대기');
+}
+
+/* ======================================================================
+ *  7. 화면 켜짐 유지
+ * ====================================================================== */
+async function requestWake(){
+  if (!CFG.wake) return;
+  try {
+    if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+  } catch(e){}
+  /* Bluefy 전용 API */
+  try { if (navigator.bluetooth && navigator.bluetooth.setScreenDimEnabled)
+          navigator.bluetooth.setScreenDimEnabled(false); } catch(e){}
+}
+function releaseWake(){
+  try { if (wakeLock) wakeLock.release(); } catch(e){}
+  wakeLock = null;
+  try { if (navigator.bluetooth && navigator.bluetooth.setScreenDimEnabled)
+          navigator.bluetooth.setScreenDimEnabled(true); } catch(e){}
+}
+document.addEventListener('visibilitychange', () => {
+  if (!scanning || scanTier === 'SIM') return;
+  log('화면 상태 ' + document.visibilityState);
+  if (document.visibilityState === 'visible') {
+    requestWake(); setTimeout(checkScanHealth, 300);
+  }
+});
+window.addEventListener('focus', () => {
+  if (scanning) { log('스캔 화면 포커스 복귀'); setTimeout(checkScanHealth, 300); }
+});
+window.addEventListener('blur', () => {
+  if (scanning && scanTier !== 'SIM') log('스캔 화면 포커스 이탈');
+});
+window.addEventListener('pageshow', () => { if (scanning) setTimeout(checkScanHealth, 300); });
+
+function showHelp(){
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const msg = ios
+    ? 'iOS Safari는 Web Bluetooth를 지원하지 않습니다.\n\n' +
+      'App Store에서 무료 앱 "Bluefy – Web BLE Browser"를 설치한 뒤,\n' +
+      'Bluefy 안에서 이 주소를 다시 열어주세요.\n\n' + location.href
+    : '안드로이드 Chrome에서 열어주세요.\n\n' +
+      '일괄 스캔을 켜려면 주소창에 아래를 입력 →\n' +
+      'chrome://flags/#enable-experimental-web-platform-features → Enabled → 재시작\n\n' +
+      '(삼성 인터넷 브라우저는 설정 없이 바로 동작합니다)';
+  alert(msg);
+}
+
+/* ======================================================================
+ *  8. 설정 바인딩
+ * ====================================================================== */
+function bindCfg(){
+  const b = (sel, key, ev, get, set) => {
+    const el = $(sel);
+    set(el, CFG[key]);
+    el.addEventListener(ev, () => { CFG[key] = get(el); saveCfg(); onCfgChange(key); });
+  };
+  const T = (el,v)=>el.value=v==null?'':v, TV=el=>el.value.trim();
+  b('#cfgSite','site','input',TV,T);
+  b('#cfgUnit','unit','input',TV,T);
+  b('#cfgName','name','input',TV,T);
+  b('#cfgFloor','floor','input',TV,T);
+  b('#cfgZone','zone','input',TV,T);
+  b('#cfgLocal','local','input',TV,T);
+  b('#cfgBroker','broker','input',TV,T);
+  b('#cfgMode','mode','change',TV,T);
+  b('#cfgTx','tx','input',el=>+el.value,(el,v)=>el.value=v);
+  b('#cfgN','n','input',el=>+el.value/10,(el,v)=>el.value=Math.round(v*10));
+  b('#cfgK','kal','input',el=>+el.value,(el,v)=>el.value=v);
+  b('#cfgRep','rep','input',el=>+el.value,(el,v)=>el.value=v);
+  const C=(el,v)=>el.checked=!!v, CV=el=>el.checked;
+  b('#cfgIbea','ibea','change',CV,C);
+  b('#cfgSound','sound','change',CV,C);
+  b('#cfgWake','wake','change',CV,C);
+  b('#cfgSim','sim','change',CV,C);
+  updateLabels();
+}
+function updateLabels(){
+  $('#vTx').textContent  = CFG.tx + ' dBm';
+  $('#vN').textContent   = CFG.n.toFixed(1);
+  $('#vK').textContent   = CFG.kal <= 4 ? '약 (반응빠름)' : CFG.kal >= 14 ? '강 (안정)' : '중';
+  $('#vRep').textContent = CFG.rep + '초';
+  $('#unitTag').textContent = (CFG.name || CFG.unit) +
+    (CFG.floor ? ' · ' + CFG.floor + '층' : '') + (CFG.zone ? CFG.zone : '');
+}
+function onCfgChange(key){
+  updateLabels();
+  if (['site','unit','mode','local','broker'].indexOf(key) >= 0) initLink();
+  if (key === 'rep' && repTimer) startReporting();
+  if (key === 'sim' && scanning){ stopScan(); setTimeout(startScan, 250); }
+  beacons.forEach(r => { r.dist = DRT.rssiToDist(r.rssiF, CFG.tx, CFG.n);
+                         r.grade = DRT.grade(r.dist, r.rssiF); });
+  render();
+}
+
+/* ======================================================================
+ *  9. 부팅
+ * ====================================================================== */
+$('#btnScan').onclick = () => scanning ? stopScan() : startScan();
+$('#btnAdd').onclick  = addDevice;
+$('#btnSet').onclick  = () => { $('#diag').textContent = diagText(); $('#sheet').classList.add('show'); };
+$('#btnClose').onclick= () => $('#sheet').classList.remove('show');
+$('#sheet').onclick   = e => { if (e.target.id === 'sheet') $('#sheet').classList.remove('show'); };
+$('#calBtn').onclick  = enableCompass;
+$('#btnSos').onclick  = () => {
+  selfSos = !selfSos;
+  $('#btnSos').style.background = selfSos ? 'var(--danger)' : '';
+  banner(selfSos ? '본인 긴급상황을 통제실에 전송합니다' : '긴급상황 해제', selfSos ? null : 'ok');
+  beep(selfSos?2000:800,.3,.35); report();
+};
+
+bindCfg();
+initLink();
+uiTimer = setInterval(render, 400);
+render();
+log('앱 시작 — 통신 수정 v4');
+
+if ('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+
+/* 최초 실행 안내 */
+if (!localStorage.getItem('drt.seen')){
+  try { localStorage.setItem('drt.seen','1'); } catch(e){}
+  setTimeout(() => {
+    banner('먼저 ⚙ 설정에서 현장 코드와 대원 정보를 입력하세요.', 'warn', 9000);
+  }, 800);
+}
+</script>
+</body>
+</html>
