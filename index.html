@@ -440,6 +440,11 @@ DRT.parseName = function (name) {
 /* iBeacon manufacturer data (Apple 0x004C) 해석
  * 레이아웃: [0]=0x02 [1]=0x15 [2..17]=UUID [18..19]=Major [20..21]=Minor [22]=TxPower */
 DRT.parseIBeacon = function (dataView) {
+  // Web Bluetooth는 보통 회사 번호를 제외한 02 15부터 전달한다.
+  // 전체 제조사 payload(4C 00 02 15)가 들어온 경우에도 같은 방식으로 해석한다.
+  if (dataView && dataView.byteLength >= 25 && dataView.getUint8(0) === 0x4c && dataView.getUint8(1) === 0x00) {
+    dataView = new DataView(dataView.buffer, dataView.byteOffset + 2, dataView.byteLength - 2);
+  }
   if (!dataView || dataView.byteLength < 23) return null;
   if (dataView.getUint8(0) !== 0x02 || dataView.getUint8(1) !== 0x15) return null;
   let uuid = '';
@@ -474,8 +479,7 @@ DRT.decodeMajor = function (major) {
 /* 광고 이벤트(advertisementreceived) → 통합 비콘 레코드 */
 DRT.parseAdv = function (ev) {
   const name = ev.device && ev.device.name ? ev.device.name : ev.name;
-  const nm = DRT.parseName(name);
-  if (!nm) return null;                        // ★ DRT 비콘이 아니면 즉시 배제
+  let nm = DRT.parseName(ev.name) || DRT.parseName(name);
 
   let ib = null;
   try {
@@ -488,11 +492,17 @@ DRT.parseAdv = function (ev) {
 
   const mi = ib ? DRT.decodeMinor(ib.minor) : null;
   const mj = ib ? DRT.decodeMajor(ib.major) : null;
+  // 이름이 빠진 광고는 프로젝트 UUID와 Minor 기기 번호로 식별한다.
+  if (!nm) {
+    if (!ib || ib.uuid.toLowerCase() !== DRT.CONST.IBEACON_UUID.toLowerCase()) return null;
+    const ids = {47:'A1B2',48:'A1B3',49:'A1B4'};
+    nm = {hex:ids[mi.num] || ('B'+mi.num.toString(16).toUpperCase().padStart(3,'0')),sos:false};
+  }
 
   return {
     id:      nm.hex,                                    // 고유 식별자
     devId:   ev.device ? ev.device.id : null,           // 브라우저 익명 ID
-    name:    name,
+    name:    DRT.parseName(name) ? name : 'DRT-'+nm.hex,
     rssi:    ev.rssi,
     advTx:   ev.txPower != null ? ev.txPower : (ib ? ib.txPower : null),
     sos:     nm.sos || (mi ? mi.sos : false),
@@ -925,6 +935,42 @@ let heading = null, headingAcc = null;
 let link = null, repTimer = null, simTimer = null, uiTimer = null;
 let selfSos = false;
 let diagLog = [];
+let rawAdvertisementCount = 0, matchedAdvertisementCount = 0;
+let lastRawAdvertisement = 0;
+let mdPacketCount=0, applePacketCount=0, iBeaconPacketCount=0, projectUuidCount=0, drtNameCount=0;
+let diagUpdatedAt=0;
+const advertisementSamples = new Map();
+function recordAdvertisement(ev){
+  const parts=[];
+  let ib=null;
+  try {
+    const md=ev.manufacturerData;
+    if (md && typeof md.forEach === 'function') {
+      let hasData=false;
+      md.forEach((dv,key)=>{
+        hasData=true;
+        const bytes=[];
+        for(let i=0;i<Math.min(dv.byteLength,32);i++) bytes.push(dv.getUint8(i).toString(16).padStart(2,'0'));
+        parts.push('0x'+key.toString(16).padStart(4,'0')+'/'+dv.byteLength+'바이트/'+bytes.join(''));
+        if(key===DRT.CONST.APPLE_COMPANY_ID){ applePacketCount++;ib=DRT.parseIBeacon(dv); }
+      });
+      if(hasData) mdPacketCount++;
+    }
+  } catch(e){ parts.push('읽기오류:'+e.message); }
+  if(ib){iBeaconPacketCount++;if(ib.uuid===DRT.CONST.IBEACON_UUID)projectUuidCount++;}
+  const name=ev.name || ev.device?.name || '(없음)';
+  if(DRT.parseName(ev.name)||DRT.parseName(ev.device?.name))drtNameCount++;
+  const signature=(ev.device?.id || name)+'|'+parts.join(',');
+  // 최근 기기 샘플은 최대 16개만 보관하고, 우리 UUID가 발견되면 별도 로그에 남긴다.
+  advertisementSamples.delete(signature);
+  advertisementSamples.set(signature,'이름='+name+' RSSI='+ev.rssi+' 제조사='+(parts.join(',')||'(없음)')+
+    ' UUID='+(ib?.uuid||'(없음)'));
+  while(advertisementSamples.size>16)advertisementSamples.delete(advertisementSamples.keys().next().value);
+  if(ib?.uuid===DRT.CONST.IBEACON_UUID && projectUuidCount===1)log('우리 UUID 광고 최초 수신');
+  if(Date.now()-diagUpdatedAt>1000){
+    diagUpdatedAt=Date.now();const d=$('#diag');if(d)d.textContent=diagText();
+  }
+}
 // 등록 정보는 45초 후 사라지는 표시용 레코드와 별도로 보관한다.
 const knownDevices = new Map(), deviceWatches = new Map();
 let scanEpoch = 0, scanBusy = false, choosingDevice = false;
@@ -987,6 +1033,19 @@ function diagText(){
     '나침반     : ' + (heading == null ? '없음' : Math.round(heading) + '°'),
     '전송       : ' + (link ? link.state + ' / ' + (link.active||'-') : '-'),
     '추적 비콘  : ' + beacons.size,
+    '전체 광고  : ' + rawAdvertisementCount + '회',
+    '비콘 광고  : ' + matchedAdvertisementCount + '회',
+    '최근 광고  : ' + (lastRawAdvertisement ? Math.round((Date.now()-lastRawAdvertisement)/1000)+'초 전' : '없음'),
+    '제조사 포함: ' + mdPacketCount + '회',
+    'Apple 004C : ' + applePacketCount + '회',
+    'iBeacon    : ' + iBeaconPacketCount + '회',
+    '우리 UUID  : ' + projectUuidCount + '회',
+    'DRT 이름   : ' + drtNameCount + '회',
+    '화면 상태  : ' + document.visibilityState + ' / 포커스 ' + document.hasFocus(),
+    '스캔 활성  : ' + (leScan ? leScan.active : '없음'),
+    '스캔 조건  : Apple 004C / 02 15 또는 DRT 이름',
+    '── 최근 광고 샘플 (최대 16개) ──',
+    [...advertisementSamples.values()].join('\n'),
     '─────────────',
     diagLog.join('\n')
   ].join('\n');
@@ -1042,9 +1101,40 @@ function ingest(p){
  *  2. 스캔 엔진 — 3단계 폴백
  * ====================================================================== */
 async function startScan(){
+  if (scanning || scanBusy) return;
   if (CFG.sim) { startSim(); return; }
-  // 시작 버튼의 사용자 클릭 안에서 즉시 기기 선택창을 요청한다.
-  return addDevice();
+  if (!window.isSecureContext) { banner('HTTPS 접속이 필요합니다.'); return; }
+  if (!navigator.bluetooth?.requestLEScan) {
+    banner('광고 직접 스캔 미지원: Chrome 실험 기능 적용 후 재시작하세요.'); return;
+  }
+  const epoch = ++scanEpoch;
+  scanBusy = true;
+  rawAdvertisementCount = 0; matchedAdvertisementCount = 0; lastRawAdvertisement = 0;
+  mdPacketCount=0;applePacketCount=0;iBeaconPacketCount=0;projectUuidCount=0;drtNameCount=0;
+  advertisementSamples.clear();diagUpdatedAt=0;
+  lastAdvertisement = 0; lastRecovery = 0; recoveryAttempts = 0;
+  clearReceivers();
+  scanTier = 'LE_SCAN';
+  // 선택창 없이 주변 광고를 받는다. 제조사 데이터와 이름은 앱에서 식별한다.
+  navigator.bluetooth.addEventListener('advertisementreceived', onAdv);
+  try {
+    const requested = await navigator.bluetooth.requestLEScan({
+      filters:[
+        {manufacturerData:[{companyIdentifier:DRT.CONST.APPLE_COMPANY_ID,dataPrefix:new Uint8Array([0x02,0x15])}]},
+        {namePrefix:DRT.CONST.NAME_PREFIX}
+      ],
+      keepRepeatedDevices:true
+    });
+    if (epoch !== scanEpoch) { requested.stop(); return; }
+    leScan = requested;
+    onScanStarted();
+    log('iBeacon 직접 스캔 시작 — Apple 004C / 02 15 또는 DRT 이름');
+  } catch(e) {
+    if (epoch !== scanEpoch) return;
+    clearReceivers(); scanTier = null;
+    log('광고 직접 스캔 실패: '+e.name+' — '+e.message);
+    banner('광고 직접 스캔 실패: '+e.name+' — '+e.message);
+  } finally { if (epoch === scanEpoch) scanBusy = false; }
 }
 
 async function watchDevice(d, epoch = scanEpoch){
@@ -1093,7 +1183,7 @@ async function addDevice(){
   let selected = null;
   try {
     selected = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
+      filters: [{ namePrefix: DRT.CONST.NAME_PREFIX }],
       optionalManufacturerData: [DRT.CONST.APPLE_COMPANY_ID]
     });
     if (epoch !== scanEpoch) return;
@@ -1134,8 +1224,17 @@ async function addDevice(){
 function onAdv(ev){
   if (!scanning && !scanBusy && !choosingDevice) return;
   try {
+    rawAdvertisementCount++; lastRawAdvertisement = Date.now();
+    recordAdvertisement(ev);
     const p = DRT.parseAdv(ev);
+    if (rawAdvertisementCount <= 8) {
+      let ib = null;
+      try { ib = DRT.parseIBeacon(ev.manufacturerData?.get(DRT.CONST.APPLE_COMPANY_ID)); } catch(e){}
+      log('광고 '+rawAdvertisementCount+' 이름='+(ev.name || ev.device?.name || '(없음)')+
+        ' RSSI='+ev.rssi+' UUID='+(ib?.uuid || '(없음)')+' 프로젝트='+(p ? '일치' : '불일치'));
+    }
     if (!p || !Number.isFinite(p.rssi) || p.rssi >= 0 || p.rssi < -127) return;
+    matchedAdvertisementCount++;
     lastAdvertisement = Date.now(); recoveryAttempts = 0;
     ingest(p);
   } catch(e){ log('파싱오류 ' + e.message); }
@@ -1651,7 +1750,7 @@ bindCfg();
 initLink();
 uiTimer = setInterval(render, 400);
 render();
-log('앱 시작 — 통신 수정 v4');
+log('앱 시작 — V4 iBeacon 제조사 스캔');
 
 if ('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
